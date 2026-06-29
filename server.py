@@ -11,11 +11,13 @@ Transport: Streamable HTTP  -> deploy online ได้ (เช่น Railway)
 Endpoint  : http://<host>:<port>/mcp
 """
 
+import hmac
 import os
 import time
 
 import httpx
 import feedparser
+import uvicorn
 from mcp.server.fastmcp import FastMCP
 
 # --------------------------------------------------------------------------- #
@@ -27,6 +29,10 @@ CRYPTOPANIC_BASE = "https://cryptopanic.com/api/v1/posts/"
 
 CRYPTOPANIC_TOKEN = os.environ.get("CRYPTOPANIC_TOKEN", "").strip()
 COINGECKO_DEMO_KEY = os.environ.get("COINGECKO_DEMO_KEY", "").strip()
+
+# ตั้งค่าตัวนี้เพื่อ "ล็อก" server ด้วย bearer token
+# ถ้าเว้นว่าง = เปิดให้เรียกได้ทุกคน (เหมาะกับ local dev)
+MCP_BEARER_TOKEN = os.environ.get("MCP_BEARER_TOKEN", "").strip()
 
 RSS_FEEDS = {
     "coindesk": "https://www.coindesk.com/arc/outboundfeeds/rss/",
@@ -371,7 +377,59 @@ async def get_cryptopanic_news(currencies: str = "", filter: str = "hot", limit:
 
 
 # --------------------------------------------------------------------------- #
+# Bearer-token auth (pure-ASGI middleware)
+# --------------------------------------------------------------------------- #
+class BearerAuthMiddleware:
+    """ตรวจ header `Authorization: Bearer <token>` ทุก request แบบ HTTP
+    ส่วน scope อื่น (lifespan/websocket) ส่งต่อให้ app ภายในตามปกติ
+    เพื่อให้ MCP session manager เริ่มทำงานได้"""
+
+    def __init__(self, app, token: str):
+        self.app = app
+        self._expected = f"Bearer {token}"
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = dict(scope.get("headers") or [])
+        provided = headers.get(b"authorization", b"").decode("latin-1")
+
+        if not hmac.compare_digest(provided, self._expected):
+            body = b'{"error":"unauthorized","error_description":"Missing or invalid bearer token"}'
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"www-authenticate", b"Bearer"),
+                        (b"content-length", str(len(body)).encode()),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        await self.app(scope, receive, send)
+
+
+def build_app():
+    app = mcp.streamable_http_app()
+    if MCP_BEARER_TOKEN:
+        print("[auth] bearer token ENABLED — ทุก request ต้องมี Authorization: Bearer <token>")
+        return BearerAuthMiddleware(app, MCP_BEARER_TOKEN)
+    print("[auth] WARNING: MCP_BEARER_TOKEN ไม่ได้ตั้งค่า — server เปิดให้เรียกได้ทุกคน (ไม่มี auth)")
+    return app
+
+
+# --------------------------------------------------------------------------- #
 # Entrypoint
 # --------------------------------------------------------------------------- #
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    uvicorn.run(
+        build_app(),
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", "8000")),
+    )

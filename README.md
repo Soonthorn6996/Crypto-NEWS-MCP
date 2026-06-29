@@ -87,7 +87,12 @@ https://your-app.up.railway.app/mcp
 
 ### Claude Code (CLI)
 ```bash
+# ไม่ได้ล็อก token
 claude mcp add --transport http crypto-news https://your-app.up.railway.app/mcp
+
+# ถ้าล็อกด้วย MCP_BEARER_TOKEN ให้ส่ง header ไปด้วย
+claude mcp add --transport http crypto-news https://your-app.up.railway.app/mcp \
+  --header "Authorization: Bearer <YOUR_TOKEN>"
 ```
 
 ### Claude.ai / Claude Desktop (Custom Connector)
@@ -105,6 +110,7 @@ claude mcp add --transport http crypto-news https://your-app.up.railway.app/mcp
 
 | ตัวแปร | ใช้ทำอะไร | ไม่ใส่จะเป็นยังไง |
 |---|---|---|
+| `MCP_BEARER_TOKEN` | ล็อก server — ทุก request ต้องมี `Authorization: Bearer <token>` | server เปิด ใครก็เรียกได้ |
 | `COINGECKO_DEMO_KEY` | เพิ่ม rate limit CoinGecko | ใช้ได้ปกติ แต่ rate limit ต่ำกว่า |
 | `CRYPTOPANIC_TOKEN` | เปิด tool `get_cryptopanic_news` | tool นี้จะแจ้งให้ไปสมัคร (tool อื่นใช้ได้หมด) |
 | `PORT` | พอร์ตที่รัน | Railway ตั้งให้เอง / local = 8000 |
@@ -113,6 +119,6 @@ claude mcp add --transport http crypto-news https://your-app.up.railway.app/mcp
 
 ## ⚠️ หมายเหตุ
 
-- **ความปลอดภัย:** URL นี้เป็น public — ใครมี URL ก็เรียกได้ แต่ข้อมูลทั้งหมดเป็นข้อมูลสาธารณะ (read-only) จึงเสี่ยงต่ำ ถ้าต้องการจำกัดการเข้าถึง แนะนำเพิ่มชั้น auth ภายหลัง
+- **ความปลอดภัย:** ตั้งค่า `MCP_BEARER_TOKEN` เพื่อล็อก server (แนะนำสำหรับ public URL) — request ที่ไม่มี header `Authorization: Bearer <token>` จะได้ HTTP 401 ถ้าไม่ตั้งค่า server จะเปิดให้ใครก็เรียกได้ (ข้อมูลเป็น read-only สาธารณะ เสี่ยงต่ำ แต่ควรล็อกไว้)
 - **Rate limit:** CoinGecko free มีโควต้าจำกัด ถ้าเจอ error 429 ให้เว้นช่วงแล้วลองใหม่ หรือใส่ `COINGECKO_DEMO_KEY`
 - ข้อมูลทั้งหมดเพื่อการศึกษาเท่านั้น ไม่ใช่คำชี้ชวนในการลงทุน
