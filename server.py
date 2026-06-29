@@ -85,19 +85,24 @@ def _fmt_pct(n):
         return str(n)
 
 
-def _fmt_big_usd(n):
-    """market cap / volume แบบย่อ T/B/M"""
+def _fmt_big(n, currency="usd"):
+    """market cap / volume แบบย่อ T/B/M พร้อม label สกุลเงินที่ถูกต้อง"""
     if n is None:
         return "N/A"
     try:
         a = abs(n)
         if a >= 1e12:
-            return f"${n / 1e12:,.2f}T"
-        if a >= 1e9:
-            return f"${n / 1e9:,.2f}B"
-        if a >= 1e6:
-            return f"${n / 1e6:,.2f}M"
-        return f"${n:,.2f}"
+            v, suf = n / 1e12, "T"
+        elif a >= 1e9:
+            v, suf = n / 1e9, "B"
+        elif a >= 1e6:
+            v, suf = n / 1e6, "M"
+        else:
+            v, suf = n, ""
+        cur = currency.upper()
+        if cur == "USD":
+            return f"${v:,.2f}{suf}"
+        return f"{v:,.2f}{suf} {cur}"
     except (TypeError, ValueError):
         return str(n)
 
@@ -145,8 +150,8 @@ async def get_crypto_price(coin_ids: str, vs_currency: str = "usd") -> str:
                 f"{arrow} {coin.upper()}\n"
                 f"   ราคา      : {_fmt(price)} {vs_currency.upper()}\n"
                 f"   24h       : {_fmt_pct(chg)}\n"
-                f"   Market Cap: {_fmt_big_usd(mcap)}\n"
-                f"   Vol 24h   : {_fmt_big_usd(vol)}\n"
+                f"   Market Cap: {_fmt_big(mcap, vs_currency)}\n"
+                f"   Vol 24h   : {_fmt_big(vol, vs_currency)}\n"
             )
         return "\n".join(lines) + DISCLAIMER
     except httpx.HTTPStatusError as e:
@@ -184,8 +189,8 @@ async def get_market_overview(top: int = 10, vs_currency: str = "usd") -> str:
 
         out = [
             "📊 ภาพรวมตลาด Crypto",
-            f"   Market Cap รวม : {_fmt_big_usd(total_mcap)} ({_fmt_pct(mcap_chg)} 24h)",
-            f"   Volume 24h     : {_fmt_big_usd(total_vol)}",
+            f"   Market Cap รวม : {_fmt_big(total_mcap, 'usd')} ({_fmt_pct(mcap_chg)} 24h)",
+            f"   Volume 24h     : {_fmt_big(total_vol, 'usd')}",
             f"   BTC Dominance  : {_fmt(btc_dom)}%",
             f"   ETH Dominance  : {_fmt(eth_dom)}%",
             f"\n🏆 Top {top} เหรียญ (อ้างอิง {vs_currency.upper()}):",
@@ -196,7 +201,7 @@ async def get_market_overview(top: int = 10, vs_currency: str = "usd") -> str:
             out.append(
                 f"{arrow} #{c.get('market_cap_rank')} {c.get('symbol', '').upper()} "
                 f"({c.get('name')}) — {_fmt(c.get('current_price'))} {vs_currency.upper()} "
-                f"| {_fmt_pct(chg)} | MCap {_fmt_big_usd(c.get('market_cap'))}"
+                f"| {_fmt_pct(chg)} | MCap {_fmt_big(c.get('market_cap'), vs_currency)}"
             )
         return "\n".join(out) + DISCLAIMER
     except httpx.HTTPStatusError as e:
