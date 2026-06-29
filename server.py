@@ -30,9 +30,27 @@ CRYPTOPANIC_BASE = "https://cryptopanic.com/api/v1/posts/"
 CRYPTOPANIC_TOKEN = os.environ.get("CRYPTOPANIC_TOKEN", "").strip()
 COINGECKO_DEMO_KEY = os.environ.get("COINGECKO_DEMO_KEY", "").strip()
 
-# ตั้งค่าตัวนี้เพื่อ "ล็อก" server ด้วย bearer token
-# ถ้าเว้นว่าง = เปิดให้เรียกได้ทุกคน (เหมาะกับ local dev)
+# --- โหมด auth (เลือกอัตโนมัติตาม env ที่ตั้งไว้) ---
+# 1) OAuth 2.1  : ตั้ง OAUTH_LOGIN_PASSWORD (+ PUBLIC_URL) -> ใช้บน Claude.ai/Cowork web ได้
+# 2) Bearer     : ตั้ง MCP_BEARER_TOKEN -> เหมาะกับ Claude Code (CLI) ที่ส่ง header ได้
+# 3) Open       : ไม่ตั้งอะไรเลย -> เปิดให้เรียกได้ทุกคน (local dev)
 MCP_BEARER_TOKEN = os.environ.get("MCP_BEARER_TOKEN", "").strip()
+OAUTH_LOGIN_PASSWORD = os.environ.get("OAUTH_LOGIN_PASSWORD", "").strip()
+
+# base URL สาธารณะของ server (ใช้เป็น OAuth issuer) — Railway ใส่ RAILWAY_PUBLIC_DOMAIN ให้เอง
+PUBLIC_URL = os.environ.get("PUBLIC_URL", "").strip().rstrip("/")
+if not PUBLIC_URL:
+    _rd = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    if _rd:
+        PUBLIC_URL = f"https://{_rd}"
+
+OAUTH_ENABLED = bool(OAUTH_LOGIN_PASSWORD and PUBLIC_URL)
+if OAUTH_ENABLED:
+    AUTH_MODE = "oauth"
+elif MCP_BEARER_TOKEN:
+    AUTH_MODE = "bearer"
+else:
+    AUTH_MODE = "open"
 
 RSS_FEEDS = {
     "coindesk": "https://www.coindesk.com/arc/outboundfeeds/rss/",
@@ -44,11 +62,28 @@ RSS_FEEDS = {
 USER_AGENT = "crypto-news-mcp/1.0 (+https://github.com)"
 HTTP_TIMEOUT = 25.0
 
+_auth_kwargs = {}
+_oauth_provider = None
+if OAUTH_ENABLED:
+    from oauth_provider import SimpleOAuthProvider, build_auth_settings
+
+    _oauth_provider = SimpleOAuthProvider(PUBLIC_URL, OAUTH_LOGIN_PASSWORD, static_token=MCP_BEARER_TOKEN)
+    _auth_kwargs = {
+        "auth_server_provider": _oauth_provider,
+        "auth": build_auth_settings(PUBLIC_URL),
+    }
+
 mcp = FastMCP(
     "crypto-news",
     host="0.0.0.0",
     port=int(os.environ.get("PORT", "8000")),
+    **_auth_kwargs,
 )
+
+if OAUTH_ENABLED:
+    from oauth_provider import register_login_route
+
+    register_login_route(mcp, _oauth_provider)
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -417,10 +452,14 @@ class BearerAuthMiddleware:
 
 def build_app():
     app = mcp.streamable_http_app()
-    if MCP_BEARER_TOKEN:
+    if AUTH_MODE == "oauth":
+        # FastMCP จัดการ OAuth + ป้องกัน /mcp ให้เองแล้ว (ไม่ต้องหุ้มเพิ่ม)
+        print(f"[auth] OAuth 2.1 ENABLED — issuer={PUBLIC_URL} (login ที่ {PUBLIC_URL}/login)")
+        return app
+    if AUTH_MODE == "bearer":
         print("[auth] bearer token ENABLED — ทุก request ต้องมี Authorization: Bearer <token>")
         return BearerAuthMiddleware(app, MCP_BEARER_TOKEN)
-    print("[auth] WARNING: MCP_BEARER_TOKEN ไม่ได้ตั้งค่า — server เปิดให้เรียกได้ทุกคน (ไม่มี auth)")
+    print("[auth] WARNING: ไม่มี auth — server เปิดให้เรียกได้ทุกคน (ตั้ง OAUTH_LOGIN_PASSWORD หรือ MCP_BEARER_TOKEN เพื่อล็อก)")
     return app
 
 
